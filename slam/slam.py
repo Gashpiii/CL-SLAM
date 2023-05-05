@@ -11,6 +11,8 @@ from loop_closure_detection import LoopClosureDetection
 from slam.pose_graph_optimization import PoseGraphOptimization
 from slam.replay_buffer import ReplayBuffer
 from slam.utils import calc_depth_error, rotation_error, translation_error
+print(f"KITTI: {Kitti}")
+print(f"ROBOTCAR: {Robotcar}")
 
 PLOTTING = True
 
@@ -49,7 +51,7 @@ class Slam:
                 config.dataset.height,
                 config.dataset.width,
                 poses=True,  # Ground truth poses
-                with_depth=False,
+                with_depth=True,
                 min_distance=config.slam.min_distance,
             )
         elif self.online_dataset_type == 'RobotCar':

@@ -16,7 +16,7 @@ replay_buffer = ReplayBuffer(replay_buffer_path, 'Cityscapes')
 # ============================================================
 
 dataset = Cityscapes(
-    Path('USER/data/cityscapes'),  # <-- ADJUST THIS
+    Path('/home/matiss/hdd/data/cityscapes/'),  # <-- ADJUST THIS
     'train',
     [-1, 0, 1],
     [0, 1, 2, 3],

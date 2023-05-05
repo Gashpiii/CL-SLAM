@@ -1,7 +1,7 @@
 Dataset:
   dataset: Kitti
 #  dataset: RobotCar
-  dataset_path: USER/data/kitti/odometry/dataset
+  dataset_path: /home/matiss/hdd/data/kitti
   frame_ids: [ 0, -1, 1 ]
   scales: [ 0, 1, 2, 3 ] # Provided by dataloader
   height: 192
@@ -32,10 +32,12 @@ DepthPosePrediction:
   gpu_ids:
   batch_size: 3
   log_path: ./log/slam/c_k9
-  load_weights_folder: ./log/cityscapes/models/weights_025
+  # load_weights_folder: ./log/slam/c_k9/models/weights_000
+  load_weights_folder: ./log/cityscapes/models/weights_025/
   use_wandb: False
 
 ReplayBuffer:
+  # sampling_method: 
   maximize_diversity: True
   max_buffer_size: 100
   similarity_threshold: .95
@@ -48,7 +50,7 @@ LoopClosureDetection:
   num_matches: 1
 
 Slam:
-  dataset_sequence: 6
+  dataset_sequence: 09
   adaptation: True
   adaptation_epochs: 5
   min_distance: .2
