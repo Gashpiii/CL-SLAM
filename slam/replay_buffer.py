@@ -29,10 +29,11 @@ class ReplayBuffer(TorchDataset):
             num_workers: int = 1,
             do_augmentation: bool = False,
             batch_size: int = 1,
-            maximize_diversity: bool = False,
-            max_buffer_size: int = np.iinfo(int).max,
-            similarity_threshold: float = 1,
-            similarity_sampling: bool = True,
+            sampling: str = 'cosine_sim',
+            maximize_diversity: bool = True,
+            max_buffer_size: int = 100,
+            similarity_threshold: float = 0.95, 
+            similarity_sampling: bool = False,
     ):
         self.storage_dir = storage_dir
         # self._reset_storage_dir()
@@ -41,6 +42,7 @@ class ReplayBuffer(TorchDataset):
         self.num_workers = num_workers
         self.do_augmentation = do_augmentation
         self.batch_size = batch_size
+        self.num_seen_examples = 0
 
         # Restrict size of the replay buffer
         self.NUMBER_SAMPLES_PER_ENVIRONMENT = 100
@@ -66,6 +68,7 @@ class ReplayBuffer(TorchDataset):
 
         # Dissimilarity-based buffer
         self.similarity_sampling = similarity_sampling
+        self.sampling = sampling
         self.maximize_diversity = maximize_diversity
         self.buffer_size = max_buffer_size
         self.similarity_threshold = similarity_threshold
@@ -80,88 +83,111 @@ class ReplayBuffer(TorchDataset):
             self.load_state(state_path)
 
     def add(self, sample: Dict[str, Any], sample_filenames: Dict[str, Any],
-            image_features: Optional[Tensor] = None, verbose: bool = False):
-        # pylint: disable=no-value-for-parameter
-        index = sample['index'].item()
-        assert index == sample_filenames['index']
+            image_features: Optional[Tensor] = None, verbose: bool = True): #Changed verbose=True
+        # pylint: disable=no-value-for-parameter 
+        
+        if self.sampling == 'cosine_sim':
+            index = sample['index'].item()
+            assert index == sample_filenames['index']
 
-        index += self.faiss_index_offset
+            index += self.faiss_index_offset
+            # print(self.faiss_index)
+            if self.faiss_index is None:
+                if image_features is None:
+                    num_features = self.feature_encoder.num_features
+                else:
+                    num_features = image_features.shape[1]
+                self.faiss_index = faiss.IndexIDMap(
+                    faiss.index_factory(num_features, 'Flat', faiss.METRIC_INNER_PRODUCT))
 
-        if self.faiss_index is None:
             if image_features is None:
-                num_features = self.feature_encoder.num_features
+                image_features = self.feature_encoder(sample['rgb', 0, 0]).detach().cpu().numpy()
+            faiss.normalize_L2(image_features)  # The inner product becomes cosine similarity
+
+            add_sample = False
+            remove_sample = None
+            if self.maximize_diversity:
+
+                # Only add if sufficiently dissimilar to the existing samples
+                if self.faiss_index.ntotal == 0:
+                    similarity = 0
+                else:
+                    similarity = self.faiss_index.search(image_features, 1)[0][0][0]
+
+                if similarity < self.similarity_threshold:
+                    self.faiss_index.add_with_ids(image_features, np.array([index]))
+                    add_sample = True
+                    if verbose:
+                        print(f'Added sample {index} to the replay buffer | similarity {similarity}')
+
+                    if self.faiss_index.ntotal > self.buffer_size:
+                        # Maximize the diversity in the replay buffer
+                        if self.distance_matrix is None:
+                            features = self.faiss_index.index.reconstruct_n(0, self.faiss_index.ntotal)
+                            dist_mat, matching = self.faiss_index.search(features,
+                                                                        self.faiss_index.ntotal)
+                            for i in range(self.faiss_index.ntotal):
+                                dist_mat[i, :] = dist_mat[i, matching[i].argsort()]
+                            self.distance_matrix = dist_mat
+                            self.distance_matrix_indices = faiss.vector_to_array(
+                                self.faiss_index.id_map)
+                        else:
+                            # Only update the elements that actually change
+                            fill_up_index = np.argwhere(self.distance_matrix_indices < 0)[0, 0]
+                            a, b = self.faiss_index.search(image_features, self.faiss_index.ntotal)
+                            self.distance_matrix_indices[fill_up_index] = index
+                            sorter = np.argsort(b[0])
+                            sorter_idx = sorter[
+                                np.searchsorted(b[0], self.distance_matrix_indices, sorter=sorter)]
+                            a = a[:, sorter_idx][0]
+                            self.distance_matrix[fill_up_index, :] = self.distance_matrix[:,
+                                                                    fill_up_index] = a
+
+                        # Subtract self-similarity
+                        remove_index_tmp = np.argmax(
+                            self.distance_matrix.sum(0) - self.distance_matrix.diagonal())
+                        self.distance_matrix[:, remove_index_tmp] = self.distance_matrix[
+                                                                    remove_index_tmp,
+                                                                    :] = -1
+                        remove_index = self.distance_matrix_indices[remove_index_tmp]
+                        self.distance_matrix_indices[remove_index_tmp] = -1
+                        self.faiss_index.remove_ids(np.array([remove_index]))
+                        remove_sample = remove_index
+                        if verbose:
+                            print(f'Removed sample {remove_index} from the replay buffer')
+
             else:
-                num_features = image_features.shape[1]
-            self.faiss_index = faiss.IndexIDMap(
-                faiss.index_factory(num_features, 'Flat', faiss.METRIC_INNER_PRODUCT))
-
-        if image_features is None:
-            image_features = self.feature_encoder(sample['rgb', 0, 0]).detach().cpu().numpy()
-        faiss.normalize_L2(image_features)  # The inner product becomes cosine similarity
-
-        add_sample = False
-        remove_sample = None
-        if self.maximize_diversity:
-
-            # Only add if sufficiently dissimilar to the existing samples
-            if self.faiss_index.ntotal == 0:
-                similarity = 0
-            else:
-                similarity = self.faiss_index.search(image_features, 1)[0][0][0]
-
-            if similarity < self.similarity_threshold:
                 self.faiss_index.add_with_ids(image_features, np.array([index]))
                 add_sample = True
-                if verbose:
-                    print(f'Added sample {index} to the replay buffer | similarity {similarity}')
-
                 if self.faiss_index.ntotal > self.buffer_size:
-                    # Maximize the diversity in the replay buffer
-                    if self.distance_matrix is None:
-                        features = self.faiss_index.index.reconstruct_n(0, self.faiss_index.ntotal)
-                        dist_mat, matching = self.faiss_index.search(features,
-                                                                     self.faiss_index.ntotal)
-                        for i in range(self.faiss_index.ntotal):
-                            dist_mat[i, :] = dist_mat[i, matching[i].argsort()]
-                        self.distance_matrix = dist_mat
-                        self.distance_matrix_indices = faiss.vector_to_array(
-                            self.faiss_index.id_map)
-                    else:
-                        # Only update the elements that actually change
-                        fill_up_index = np.argwhere(self.distance_matrix_indices < 0)[0, 0]
-                        a, b = self.faiss_index.search(image_features, self.faiss_index.ntotal)
-                        self.distance_matrix_indices[fill_up_index] = index
-                        sorter = np.argsort(b[0])
-                        sorter_idx = sorter[
-                            np.searchsorted(b[0], self.distance_matrix_indices, sorter=sorter)]
-                        a = a[:, sorter_idx][0]
-                        self.distance_matrix[fill_up_index, :] = self.distance_matrix[:,
-                                                                 fill_up_index] = a
+                    remove_index = self.target_sampler.choice(self.faiss_index.ntotal, 1)[0]
+                    remove_sample = faiss.vector_to_array(self.faiss_index.id_map)[remove_index]
+                    self.faiss_index.remove_ids(np.array([remove_sample]))
+                    # if verbose:
+                    #     print(f'Removed sample {remove_sample} from the target buffer')
+        
+        elif self.sampling == 'reservoir':
+            index = sample['index'].item()
+            assert index == sample_filenames['index']
+            # print(len(self.online_filenames))
+            # print(self.num_seen_examples)
 
-                    # Subtract self-similarity
-                    remove_index_tmp = np.argmax(
-                        self.distance_matrix.sum(0) - self.distance_matrix.diagonal())
-                    self.distance_matrix[:, remove_index_tmp] = self.distance_matrix[
-                                                                remove_index_tmp,
-                                                                :] = -1
-                    remove_index = self.distance_matrix_indices[remove_index_tmp]
-                    self.distance_matrix_indices[remove_index_tmp] = -1
-                    self.faiss_index.remove_ids(np.array([remove_index]))
-                    remove_sample = remove_index
-                    if verbose:
-                        print(f'Removed sample {remove_index} from the replay buffer')
+            add_sample = False
+            remove_sample = None
 
-        else:
-            self.faiss_index.add_with_ids(image_features, np.array([index]))
-            add_sample = True
-            if self.faiss_index.ntotal > self.buffer_size:
-                remove_index = self.target_sampler.choice(self.faiss_index.ntotal, 1)[0]
-                remove_sample = faiss.vector_to_array(self.faiss_index.id_map)[remove_index]
-                self.faiss_index.remove_ids(np.array([remove_sample]))
-                # if verbose:
-                #     print(f'Removed sample {remove_sample} from the target buffer')
-
+            # num_seen_examples = len(self.online_filenames)
+            if self.num_seen_examples < self.buffer_size:
+                add_sample = True
+            else:
+                remove_index = np.random.randint(0, self.num_seen_examples + 1)
+                if remove_index < self.buffer_size:
+                    add_sample = True
+                    remove_sample = int(self.online_filenames[remove_index].name[-9:-4])
+            self.num_seen_examples += 1
+        
         if add_sample:
+            # print(len(self.online_filenames))
+            # print(self.num_seen_examples)
             filename = self.storage_dir / f'{self.dataset_type}_{index:>05}.pkl'
             data = {
                 key: value
@@ -248,7 +274,8 @@ class ReplayBuffer(TorchDataset):
             data = pickle.load(f)
             # self.buffer_filenames = data['filenames']
             self.faiss_index = data['faiss_index']
-            self.faiss_index_offset = faiss.vector_to_array(self.faiss_index.id_map).max()
+            if self.similarity_sampling:
+                self.faiss_index_offset = faiss.vector_to_array(self.faiss_index.id_map).max()
             self.online_filenames = [state_path.parent / file.name for file in data['filenames']]
         print(f'Load replay buffer state from: {state_path}')
         for key, value in self.buffer_filenames.items():
