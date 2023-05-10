@@ -4,6 +4,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
+import os
+import shutil
+from pathlib import Path
 
 from datasets import Kitti, Robotcar
 from depth_pose_prediction import DepthPosePrediction
@@ -11,8 +14,6 @@ from loop_closure_detection import LoopClosureDetection
 from slam.pose_graph_optimization import PoseGraphOptimization
 from slam.replay_buffer import ReplayBuffer
 from slam.utils import calc_depth_error, rotation_error, translation_error
-print(f"KITTI: {Kitti}")
-print(f"ROBOTCAR: {Robotcar}")
 
 PLOTTING = True
 
@@ -83,12 +84,41 @@ class Slam:
             drop_last=True)
         self.online_dataloader_iter = iter(self.online_dataloader)
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         if self.do_adaptation and config.depth_pose.batch_size > 1: # and False:
-            replay_buffer_path = config.replay_buffer.load_path
+            load_replay_buffer_path = config.replay_buffer.load_path
+            replay_buffer_path = Path(__file__).parent / f'{self.log_path}/replay_buffer'
             replay_buffer_path.mkdir(parents=True, exist_ok=True)
+
+            # fetch all files
+            for file_name in os.listdir(str(load_replay_buffer_path)):
+                # construct full file path
+                source = f'{str(load_replay_buffer_path)}/{file_name}'
+                destination = f'{str(replay_buffer_path)}/{file_name}'
+                # copy only files
+                assert os.path.isfile(source)
+                shutil.copy(source, destination)
+            print(f'Copied previous replay buffer \nFrom: {str(load_replay_buffer_path)}\nTo: {str(replay_buffer_path)}')
+        
             replay_buffer_state_path = replay_buffer_path / 'buffer_state.pkl'
-            replay_buffer_state_path = replay_buffer_state_path if \
-                replay_buffer_state_path.exists() else None
+            assert replay_buffer_state_path.exists()
             self.replay_buffer = ReplayBuffer(
                 replay_buffer_path,
                 self.online_dataset_type,
@@ -99,6 +129,7 @@ class Slam:
                 self.online_dataset.frame_ids,
                 do_augmentation=True,
                 batch_size=config.depth_pose.batch_size - 1,
+                sampling=config.replay_buffer.sampling,
                 maximize_diversity=config.replay_buffer.maximize_diversity,
                 max_buffer_size=config.replay_buffer.max_buffer_size,
                 similarity_threshold=config.replay_buffer.similarity_threshold,

@@ -42,14 +42,13 @@ class ReplayBuffer(TorchDataset):
         self.num_workers = num_workers
         self.do_augmentation = do_augmentation
         self.batch_size = batch_size
-        self.num_seen_examples = 0
 
         # Restrict size of the replay buffer
-        self.NUMBER_SAMPLES_PER_ENVIRONMENT = 100
         self.valid_indices = {}
 
         self.buffer_filenames = {}
         self.online_filenames = []
+        # self.buffer_dataset_types = set([self.dataset_type])
 
         # Precompute the resize functions for each scale relative to the previous scale
         # If scales is None, the size of the raw data will be used
@@ -70,7 +69,11 @@ class ReplayBuffer(TorchDataset):
         self.similarity_sampling = similarity_sampling
         self.sampling = sampling
         self.maximize_diversity = maximize_diversity
-        self.buffer_size = max_buffer_size
+        self.num_samples_per_env = max_buffer_size
+        # self.num_seen_examples = len(self.online_filenames)
+        # self.buffer_size = self.num_samples_per_env * len(self.buffer_dataset_types)
+
+
         self.similarity_threshold = similarity_threshold
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.feature_encoder = FeatureEncoder(self.device)
@@ -169,25 +172,26 @@ class ReplayBuffer(TorchDataset):
         elif self.sampling == 'reservoir':
             index = sample['index'].item()
             assert index == sample_filenames['index']
-            # print(len(self.online_filenames))
-            # print(self.num_seen_examples)
 
             add_sample = False
             remove_sample = None
 
-            # num_seen_examples = len(self.online_filenames)
-            if self.num_seen_examples < self.buffer_size:
+            # if self.num_seen_examples < self.buffer_size:
+            if self.num_seen_examples < self.num_samples_per_env:
                 add_sample = True
             else:
-                remove_index = np.random.randint(0, self.num_seen_examples + 1)
+                if len(self.buffer_dataset_types) > 1:
+                    # current_env_start_index = self.num_samples_per_env * (len(self.buffer_dataset_types)-1)
+                    # current_env_end_index = self.num_seen_examples + (self.num_samples_per_env * (len(self.buffer_dataset_types)-1))
+                    remove_index = np.random.randint(self.start_index+1, self.end_index + 1)
+                else:
+                    remove_index = np.random.randint(0, self.num_seen_examples + 1)
                 if remove_index < self.buffer_size:
                     add_sample = True
                     remove_sample = int(self.online_filenames[remove_index].name[-9:-4])
             self.num_seen_examples += 1
         
         if add_sample:
-            # print(len(self.online_filenames))
-            # print(self.num_seen_examples)
             filename = self.storage_dir / f'{self.dataset_type}_{index:>05}.pkl'
             data = {
                 key: value
@@ -262,7 +266,7 @@ class ReplayBuffer(TorchDataset):
 
     def save_state(self):
         filename = self.storage_dir / 'buffer_state.pkl'
-        data = {'filenames': self.online_filenames, 'faiss_index': self.faiss_index}
+        data = {'filenames': self.online_filenames, 'faiss_index': self.faiss_index, 'buffer_dataset_types': self.buffer_dataset_types}
         with open(filename, 'wb') as f:
             pickle.dump(data, f)
         print(f'Saved reply buffer state to: {filename}')
@@ -272,11 +276,23 @@ class ReplayBuffer(TorchDataset):
     def load_state(self, state_path: Path):
         with open(state_path, 'rb') as f:
             data = pickle.load(f)
+            self.buffer_dataset_types = data['buffer_dataset_types']
+            self.online_filenames = [state_path.parent / file.name for file in data['filenames']]
+            
+            self.buffer_dataset_types.add(self.dataset_type)
+
+            self.num_seen_examples = len(self.online_filenames) - (self.num_samples_per_env * (len(self.buffer_dataset_types)-1))
+            
+            # self.start_index = self.num_seen_examples + (self.num_samples_per_env * (len(self.buffer_dataset_types)-1))
+            self.buffer_size = self.num_samples_per_env * len(self.buffer_dataset_types)
+            self.end_index = self.buffer_size
+            self.start_index = self.end_index - self.num_samples_per_env
             # self.buffer_filenames = data['filenames']
             self.faiss_index = data['faiss_index']
-            if self.similarity_sampling:
+            if self.sampling == 'cosine_sim':
                 self.faiss_index_offset = faiss.vector_to_array(self.faiss_index.id_map).max()
-            self.online_filenames = [state_path.parent / file.name for file in data['filenames']]
+            # self.online_filenames = [state_path.parent / file.name for file in data['filenames']]
+            # self.num_seen_examples = len(self.online_filenames) - (self.num_samples_per_env * (len(self.buffer_dataset_types)-1))
         print(f'Load replay buffer state from: {state_path}')
         for key, value in self.buffer_filenames.items():
             print(f'{key + ":":<12} {len(value):>5}')

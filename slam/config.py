@@ -18,7 +18,7 @@ class Slam:
 @dataclasses.dataclass
 class ReplayBuffer:
     config_file: Path
-    # sampling_method: str
+    sampling: str
     maximize_diversity: bool
     max_buffer_size: int
     similarity_threshold: float
