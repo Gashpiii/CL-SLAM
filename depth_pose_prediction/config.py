@@ -8,8 +8,7 @@ class DepthPosePrediction:
     config_file: Path
     train_set: Optional[Union[Tuple[int, ...], int, str]]
     val_set: Optional[Union[Tuple[int, ...], Tuple[str, ...], int, str]]
-    resnet_depth: int
-    resnet_pose: int
+    resnet: int
     resnet_pretrained: bool
     scales: Tuple[int, ...]
     learning_rate: float

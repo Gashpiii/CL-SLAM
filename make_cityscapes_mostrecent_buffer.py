@@ -2,6 +2,7 @@ from pathlib import Path
 import shutil
 
 from torch.utils.data import DataLoader, Subset
+import torch
 from tqdm import tqdm
 
 from datasets import Cityscapes
@@ -36,9 +37,15 @@ def main(sampling, max_buffer_size):
     dataloader = DataLoader(dataset, num_workers=8, batch_size=1, shuffle=False, drop_last=True)
 
     # ============================================================
+    cityscapes_size = 83300
+    cityscapes_start_index = cityscapes_size - max_buffer_size
+    subset = Subset(dataset, list(range(cityscapes_start_index, cityscapes_size)))
+    j = cityscapes_start_index
 
-    with tqdm(total=len(dataloader)) as pbar:
-        for i, sample in enumerate(dataloader):
-            replay_buffer.add(sample, dataset.get_item_filenames(i), verbose=False)
+    with tqdm(total=len(subset)) as pbar:
+        for i, sample in enumerate(subset):
+            sample['index'] = torch.tensor([sample['index']])
+            replay_buffer.add(sample, dataset.get_item_filenames(j), verbose=True)
+            j += 1
             pbar.update(1)
     replay_buffer.save_state()

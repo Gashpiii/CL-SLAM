@@ -6,10 +6,20 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 from torch import Tensor
+import torch
+import random
 
 from depth_pose_prediction.networks.layers import BackprojectDepth
 from slam.meshlab import MeshlabInf
 
+def set_random_seed(seed):
+    if seed >= 0:
+        np.random.seed(seed)
+        random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
 def save_data(fname, obj):
     with open(fname, 'wb') as f:
@@ -237,7 +247,7 @@ def calc_sequence_errors(pred_poses, gt_poses):
 
             # Compute rotational and translational errors
             pose_delta_gt = np.linalg.inv(gt_poses[first_frame]) @ gt_poses[last_frame]
-            pose_delta_pred = np.linalg.inv(pred_poses[first_frame]) @ pred_poses[last_frame]
+            pose_delta_pred = np.linalg.inv(pred_poses[first_frame]) @ gt_poses[last_frame]
             pose_error = np.linalg.inv(pose_delta_pred) @ pose_delta_gt
             rot_error = rotation_error(pose_error) / length
             trans_error = translation_error(pose_error) / length
@@ -354,7 +364,7 @@ def compute_RPE(pred_poses, gt_poses):
     return rpe_trans, rpe_rot
 
 
-def calc_error(pred_poses, gt_poses, optimize_scale: bool = False) -> str:
+def calc_error(pred_poses, gt_poses, seed, optimize_scale: bool = False) -> str:
     log = ''
     if optimize_scale:
         pred_poses_scaled, scaling = scale_optimization(pred_poses, gt_poses)
@@ -367,6 +377,7 @@ def calc_error(pred_poses, gt_poses, optimize_scale: bool = False) -> str:
     ave_t_err, ave_r_err = compute_overall_err(sequence_error)
 
     log += '-' * 10 + '\n'
+    log += f'Seed:                 {seed}' + '\n'
     log += f'Trans error (%):      {ave_t_err * 100:.4f}' + '\n'
     log += f'Rot error (deg/100m): {100 * ave_r_err / np.pi * 180:.4f}' + '\n'
 

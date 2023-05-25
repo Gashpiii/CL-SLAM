@@ -16,5 +16,3 @@ colour_demosaicing
 scipy
 sklearn
 scikit-image
-pandas
-faiss-gpu

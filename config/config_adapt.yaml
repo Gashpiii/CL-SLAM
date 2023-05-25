@@ -10,13 +10,10 @@ Dataset:
 DepthPosePrediction:
   train_set: all
   val_set: 0
-#  train_set: 2015-08-12-15-04-18
-#  val_set: 2015-08-12-15-04-18
-  resnet_depth: 18
-  resnet_pose: 18
+  resnet: 18
   resnet_pretrained: true
   scales: [ 0, 1, 2, 3 ]  # Network size
-  learning_rate: 0.0001
+  learning_rate: 1e-4
   scheduler_step_size: 15
   num_workers: 0
   num_epochs: 20
@@ -30,19 +27,17 @@ DepthPosePrediction:
   save_val_depth_batches: 0
   multiple_gpus: false
   gpu_ids:
-  batch_size: 3
-  log_path: ./log/slam/c_k9
-  # load_weights_folder: ./log/slam/c_k9/models/weights_000
-  load_weights_folder: ./log/cityscapes/models/weights_025/
-  use_wandb: False
+  batch_size: 2
+  log_path: ./log/slam/reservoir_100_c_k9_k10
+  load_weights_folder: ./log/slam/reservoir_100_c_k9/models/weights_025
+  use_wandb:
 
 ReplayBuffer:
-  # sampling_method: 
-  maximize_diversity: True
+# Set similarity_sampling to false if using sampling method other than cosine_sim
+  sampling: reservoir
   max_buffer_size: 100
-  similarity_threshold: .95
-  similarity_sampling: False
-  load_path: ./log/slam/c_k9/replay_buffer
+  max_num_seen_examples: 10000
+  load_path: ./log/slam/reservoir_100_c_k9/replay_buffer
 
 LoopClosureDetection:
   detection_threshold: .99
@@ -50,7 +45,8 @@ LoopClosureDetection:
   num_matches: 1
 
 Slam:
-  dataset_sequence: 09
+  seed: 4
+  dataset_sequence: 10
   adaptation: True
   adaptation_epochs: 5
   min_distance: .2

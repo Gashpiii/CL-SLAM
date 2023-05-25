@@ -4,6 +4,7 @@ from pathlib import Path
 
 @dataclasses.dataclass
 class Slam:
+    seed: int
     config_file: Path
     dataset_sequence: int
     adaptation: bool
@@ -19,8 +20,6 @@ class Slam:
 class ReplayBuffer:
     config_file: Path
     sampling: str
-    maximize_diversity: bool
     max_buffer_size: int
-    similarity_threshold: float
-    similarity_sampling: bool
+    max_num_seen_examples: int
     load_path: Path

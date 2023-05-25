@@ -12,7 +12,6 @@ from loop_closure_detection import Config as LoopClosureDetection
 from slam import Config as Slam
 from slam import ReplayBufferConfig as ReplayBuffer
 
-
 class ConfigParser():
     def __init__(self, config_file: Union[str, PathLike, Path]) -> None:
         self.filename = Path(config_file)
@@ -97,7 +96,7 @@ class ConfigParser():
             self.slam = Slam(**self.config_dict['Slam'])
         if 'ReplayBuffer' in self.config_dict:
             self.replay_buffer = ReplayBuffer(**self.config_dict['ReplayBuffer'])
-
+            
     def __str__(self):
         string = ''
         for config_type_name, config_type in self.config_dict.items():

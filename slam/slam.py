@@ -1,10 +1,9 @@
 import pickle
-
+import os
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-import os
 import shutil
 from pathlib import Path
 
@@ -22,6 +21,7 @@ class Slam:
     def __init__(self, config):
         # Config =========================================
         self.config = config
+        self.seed = config.slam.seed
         self.online_dataset_type = config.dataset.dataset
         self.online_dataset_path = config.dataset.dataset_path
         self.do_adaptation = config.slam.adaptation
@@ -39,8 +39,13 @@ class Slam:
         self.lc_distance_poses = config.slam.lc_distance_poses
 
         # Depth / pose predictor ==========================
-        self.predictor = DepthPosePrediction(config.dataset, config.depth_pose, use_online=False)
-        self.predictor.load_model(load_optimizer=False)
+        self.predictor = DepthPosePrediction(config.dataset, config.depth_pose, use_online=True)
+        self.predictor.load_model(load_optimizer=True)
+        self.predictor.load_online_model(load_optimizer=True)
+        for g in self.predictor.optimizer.param_groups:
+            g['lr'] = config.depth_pose.learning_rate
+        for g in self.predictor.online_optimizer.param_groups:
+            g['lr'] = config.depth_pose.learning_rate
 
         # Dataloader ======================================
         if self.online_dataset_type == 'Kitti':
@@ -53,7 +58,7 @@ class Slam:
                 config.dataset.width,
                 poses=True,  # Ground truth poses
                 with_depth=True,
-                min_distance=config.slam.min_distance,
+                # min_distance=config.slam.min_distance,
             )
         elif self.online_dataset_type == 'RobotCar':
             if config.slam.dataset_sequence == 1:
@@ -84,41 +89,35 @@ class Slam:
             drop_last=True)
         self.online_dataloader_iter = iter(self.online_dataloader)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        if self.do_adaptation and config.depth_pose.batch_size > 1: # and False:
+        # replay_buffer_path = self.log_path / 'replay_buffer'
+        if self.do_adaptation and config.depth_pose.batch_size > 1:
             load_replay_buffer_path = config.replay_buffer.load_path
             replay_buffer_path = Path(__file__).parent / f'{self.log_path}/replay_buffer'
+            if replay_buffer_path.exists(): # Clear buffer from previous experiment
+                shutil.rmtree(replay_buffer_path)
             replay_buffer_path.mkdir(parents=True, exist_ok=True)
 
+            if load_replay_buffer_path != replay_buffer_path:
             # fetch all files
-            for file_name in os.listdir(str(load_replay_buffer_path)):
-                # construct full file path
-                source = f'{str(load_replay_buffer_path)}/{file_name}'
-                destination = f'{str(replay_buffer_path)}/{file_name}'
-                # copy only files
-                assert os.path.isfile(source)
-                shutil.copy(source, destination)
-            print(f'Copied previous replay buffer \nFrom: {str(load_replay_buffer_path)}\nTo: {str(replay_buffer_path)}')
-        
+                for file_name in os.listdir(str(load_replay_buffer_path)):
+                    # construct full file path
+                    source = f'{str(load_replay_buffer_path)}/{file_name}'
+                    destination = f'{str(replay_buffer_path)}/{file_name}'
+                    # copy only files
+                    assert os.path.isfile(source)
+                    shutil.copy(source, destination)
+                print(f'Copied previous replay buffer \nFrom: {str(load_replay_buffer_path)}\nTo: {str(replay_buffer_path)}')
+
             replay_buffer_state_path = replay_buffer_path / 'buffer_state.pkl'
-            assert replay_buffer_state_path.exists()
+            with open(replay_buffer_state_path, 'rb') as f:
+                data = pickle.load(f)
+                filenames = data['filenames']
+            filenames_replace = [replay_buffer_path/filename.name for filename in filenames] # change buffer filenames' path
+            data['filenames'] = filenames_replace
+
+            with open(replay_buffer_state_path, 'wb') as f:
+                pickle.dump(data, f)
+
             self.replay_buffer = ReplayBuffer(
                 replay_buffer_path,
                 self.online_dataset_type,
@@ -127,16 +126,22 @@ class Slam:
                 self.online_dataset.width,
                 self.online_dataset.scales,
                 self.online_dataset.frame_ids,
-                do_augmentation=True,
-                batch_size=config.depth_pose.batch_size - 1,
-                sampling=config.replay_buffer.sampling,
-                maximize_diversity=config.replay_buffer.maximize_diversity,
-                max_buffer_size=config.replay_buffer.max_buffer_size,
-                similarity_threshold=config.replay_buffer.similarity_threshold,
-                similarity_sampling=config.replay_buffer.similarity_sampling,
+                self.config.depth_pose.num_workers,
+                do_augmentation=False,
+                sampling = config.replay_buffer.sampling,
+                max_buffer_size = config.replay_buffer.max_buffer_size
             )
+            self.replay_dataloader = DataLoader(self.replay_buffer,
+                                                batch_size=1,
+                                                shuffle=True,
+                                                num_workers=config.depth_pose.num_workers,
+                                                pin_memory=True,
+                                                drop_last=True)
+            self.replay_dataloader_iter = iter(self.replay_dataloader)
         else:
-            self.replay_buffer = None
+            self.replay_buffer = ReplayBuffer(replay_buffer_path, self.online_dataset_type)
+            self.replay_dataloader = None
+            self.replay_dataloader_iter = None
 
         # Pose graph backend ==============================
         self.loop_closure_detection = LoopClosureDetection(config.loop_closure)
@@ -172,31 +177,25 @@ class Slam:
 
         # Combine online and replay data ==================
         online_data = next(self.online_dataloader_iter)
-
-        self.predictor._set_eval()
-        with torch.no_grad():
-            online_image = online_data['rgb', 0, 0].to(self.predictor.device)
-            online_features = self.predictor.models['depth_encoder'](online_image)[4].detach()
-            online_features = online_features.mean(-1).mean(-1).cpu().numpy()
-
+        if self.replay_dataloader_iter is not None:
+            try:
+                replay_data = next(self.replay_dataloader_iter)
+            except StopIteration:
+                self.replay_dataloader_iter = iter(self.replay_dataloader)
+                replay_data = next(self.replay_dataloader_iter)
+            for key, value in replay_data.items():
+                replay_data[key] = value.squeeze(0)
+            inputs = self._cat_dict(online_data, replay_data)
+        else:
+            inputs = online_data
         if self.replay_buffer is not None:
             self.replay_buffer.add(online_data,
-                                   self.online_dataset.get_item_filenames(self.current_step - 1),
-                                   online_features,
-                                   verbose=True)
-        if self.replay_buffer is not None:
-            replay_data = self.replay_buffer.get(online_data, online_features)
-            if replay_data:
-                training_data = self._cat_dict(online_data, replay_data)
-            else:
-                training_data = online_data
-        else:
-            training_data = online_data
+                                   self.online_dataset.get_item_filenames(self.current_step - 1))
         # =================================================
 
         # Use the measured velocity for this check
         if self.current_step > 1 and online_data['relative_distance',
-                                                 1] < self.min_distance:
+                                                           1] < self.min_distance:
             print(f'skip: {online_data["relative_distance", 1].detach().cpu().numpy()[0]}')
             return {'depth_loss': 0, 'velocity_loss': 0}
 
@@ -204,11 +203,11 @@ class Slam:
         # The returned losses are wrt the online data
         if self.do_adaptation:
             # Update the network weights
-            outputs, losses = self.predictor.adapt(online_data,
-                                                   training_data,
-                                                   steps=self.adaptation_epochs)
+            outputs, losses = self.predictor.adapt(inputs,
+                                                   steps=self.adaptation_epochs,
+                                                   use_expert=True)
         else:
-            outputs, losses = self.predictor.adapt(online_data, None)
+            outputs, losses = self.predictor.adapt(inputs, use_expert=False, do_adapt=False)
         # Extract input/output for online data
         image = online_data['rgb', 1, 0]
         if torch.sign(online_data['relative_distance', 1]) < 0:
@@ -304,7 +303,6 @@ class Slam:
             # Plot the tracked metrics
             if PLOTTING and (not self.current_step % 100 or optimized):
                 self.plot_metrics()
-                self.plot_trajectory()
                 self.pose_graph.visualize_in_meshlab(self.log_path / 'pose_graph.obj',
                                                      verbose=False)
                 self.gt_pose_graph.visualize_in_meshlab(self.log_path / 'gt_pose_graph.obj',
@@ -315,6 +313,7 @@ class Slam:
 
     def save_metrics(self) -> None:
         data = {
+            'seed': self.seed,
             'rel_trans_error': self.rel_trans_error,
             'rel_rot_error': self.rel_rot_error,
             'depth_loss': self.depth_loss,
