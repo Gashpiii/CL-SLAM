@@ -28,16 +28,16 @@ DepthPosePrediction:
   multiple_gpus: false
   gpu_ids:
   batch_size: 2
-  log_path: ./log/slam/reservoir_100_c_k9_k10
-  load_weights_folder: ./log/slam/reservoir_100_c_k9/models/weights_025
+  log_path: ./log/slam/reservoir-forgetting_100_c_k9
+  load_weights_folder: ./log/cityscapes/models/weights_025/
   use_wandb:
 
 ReplayBuffer:
 # Set similarity_sampling to false if using sampling method other than cosine_sim
-  sampling: reservoir
+  sampling: reservoir-forgetting
   max_buffer_size: 100
   max_num_seen_examples: 10000
-  load_path: ./log/slam/reservoir_100_c_k9/replay_buffer
+  load_path: ./log/cityscapes/replay_buffer_reservoir-forgetting_100
 
 LoopClosureDetection:
   detection_threshold: .99
@@ -46,7 +46,7 @@ LoopClosureDetection:
 
 Slam:
   seed: 4
-  dataset_sequence: 10
+  dataset_sequence: 9
   adaptation: True
   adaptation_epochs: 5
   min_distance: .2

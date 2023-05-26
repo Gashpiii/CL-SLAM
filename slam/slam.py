@@ -129,7 +129,8 @@ class Slam:
                 self.config.depth_pose.num_workers,
                 do_augmentation=False,
                 sampling = config.replay_buffer.sampling,
-                max_buffer_size = config.replay_buffer.max_buffer_size
+                max_buffer_size = config.replay_buffer.max_buffer_size,
+                max_num_seen_examples = config.replay_buffer.max_num_seen_examples
             )
             self.replay_dataloader = DataLoader(self.replay_buffer,
                                                 batch_size=1,

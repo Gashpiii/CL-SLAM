@@ -1,5 +1,5 @@
 import main_adapt
-sampling_methods = ['reservoir-forgetting', 'most-recent', 'reservoir']
+sampling_methods = ['reservoir-forgetting', 'reservoir']
 # sampling = 'reservoir'
 # buffer_sizes = [2500, 5000, 10000]
 # buffer_sizes = [1000, 2500, 5000, 10000]

@@ -83,7 +83,7 @@ class ReplayBuffer(TorchDataset):
             assert index == sample_filenames['index']
             index = self.num_seen_examples[self.dataset_type]
 
-            if sum(self.num_seen_examples.values()) < self.buffer_size:
+            if sum(self.num_seen_examples.values()) <= self.buffer_size:
                 add_sample = True
             else:
                 remove_index = np.random.randint(0, sum(self.num_seen_examples.values()) + 1)
@@ -100,11 +100,7 @@ class ReplayBuffer(TorchDataset):
 
             add_sample = True
             
-            if sum(self.num_seen_examples.values()) < self.buffer_size:
-                add_sample = True
-
-            else:
-                add_sample = True
+            if sum(self.num_seen_examples.values()) > self.buffer_size:
                 remove_index = 0
                 remove_sample = self.online_filenames[remove_index].name
                 
@@ -113,7 +109,7 @@ class ReplayBuffer(TorchDataset):
             assert index == sample_filenames['index']
             index = self.num_seen_examples[self.dataset_type]
 
-            if self.max_num_seen_examples < self.buffer_size:
+            if self.max_num_seen_examples <= self.buffer_size:
                 add_sample = True
             else:
                 remove_index = np.random.randint(0, self.max_num_seen_examples + 1)
@@ -143,14 +139,17 @@ class ReplayBuffer(TorchDataset):
             if verbose:
                 print(f'Added sample {self.dataset_type}_{index:>05}.pkl to the replay buffer')
             
-        if remove_sample is not None and not replace:
-            for filename in self.online_filenames:
-                if remove_sample == filename.name:
-                    os.remove(filename)
-                    self.online_filenames.remove(filename)
-                    break
+        if remove_sample is not None:
+            if not replace:
+                for filename in self.online_filenames:
+                    if remove_sample == filename.name:
+                        os.remove(filename)
+                        self.online_filenames.remove(filename)
+                        break
+            else:
+                os.remove(self.storage_dir / remove_sample)
             if verbose:
-                print(f'Removed sample {self.online_filenames[remove_index].name} to the replay buffer')
+                print(f'Removed sample {remove_sample} to the replay buffer')
         self.num_seen_examples[self.dataset_type] += 1
 
     def get(self) -> Dict[str, Any]:

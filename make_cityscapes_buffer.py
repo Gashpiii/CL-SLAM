@@ -8,7 +8,7 @@ from datasets import Cityscapes
 from slam.replay_buffer import ReplayBuffer
 
 # ============================================================
-def main(sampling, max_buffer_size):
+def main(sampling, max_buffer_size, max_num_seen_examples):
     if max_buffer_size < 0:
         replay_buffer_path = Path(
             __file__).parent / f'log/cityscapes/replay_buffer_{sampling}_inf'
@@ -19,7 +19,7 @@ def main(sampling, max_buffer_size):
     if replay_buffer_path.exists(): # Clear buffer from previous experiment
         shutil.rmtree(replay_buffer_path)
     replay_buffer_path.mkdir(parents=True, exist_ok=True)
-    replay_buffer = ReplayBuffer(replay_buffer_path, 'Cityscapes', sampling=sampling, max_buffer_size=max_buffer_size)
+    replay_buffer = ReplayBuffer(replay_buffer_path, 'Cityscapes', sampling=sampling, max_buffer_size=max_buffer_size, max_num_seen_examples=max_num_seen_examples)
 
     # ============================================================
 
@@ -39,6 +39,6 @@ def main(sampling, max_buffer_size):
 
     with tqdm(total=len(dataloader)) as pbar:
         for i, sample in enumerate(dataloader):
-            replay_buffer.add(sample, dataset.get_item_filenames(i), verbose=False)
+            replay_buffer.add(sample, dataset.get_item_filenames(i), verbose=True)
             pbar.update(1)
     replay_buffer.save_state()
