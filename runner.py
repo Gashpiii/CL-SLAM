@@ -1,11 +1,19 @@
 import main_adapt
-sampling_methods = ['reservoir-forgetting', 'reservoir']
+
+
+# run reservoir-forgetting sequence 10
+
+
+
+sampling_methods = ['reservoir']
 # sampling = 'reservoir'
 # buffer_sizes = [2500, 5000, 10000]
 # buffer_sizes = [1000, 2500, 5000, 10000]
+# buffer_sizes = [2500, 5000, 10000]
 buffer_sizes = [100, 250, 500, 1000, 2500, 5000, 10000]
 sequences = [9, 10] # note: first sequence is actually c since model is pre-trained on that
 # buffer_sizes = [100]
+# seeds = [218]
 seeds = [4, 42, 218]
 max_num_seen_examples = 10000
 def find_line_num(text, path):
@@ -36,7 +44,7 @@ def run_experiments(seeds, sampling_methods, buffer_sizes, sequences, max_num_se
     for sampling in sampling_methods:
         for seed in seeds:
             for buffer_size in buffer_sizes:
-                if buffer_size < 0 and sampling:
+                if buffer_size < 0:
                     log_path = f'./log/slam/{sampling}_inf_c_k{sequences[0]}'
                     load_path = f'./log/cityscapes/replay_buffer_{sampling}_inf'
 
@@ -65,9 +73,15 @@ def run_experiments(seeds, sampling_methods, buffer_sizes, sequences, max_num_se
                     modify_config(path, seed, log_path, load_weights_folder, sampling, max_buffer_size
                     , max_num_seen_examples, load_path, dataset_sequence, adaptation)
                     main_adapt.main()
-run_experiments(seeds, sampling_methods, buffer_sizes, sequences, max_num_seen_examples)
+# run_experiments(seeds, sampling_methods, buffer_sizes, sequences, max_num_seen_examples)
 
 
-buffer_sizes = [-1]
-sampling_methods = ['reservoir']
+# buffer_sizes = [-1]
+# sampling_methods = ['reservoir']
+# run_experiments(seeds, sampling_methods, buffer_sizes, sequences, max_num_seen_examples)
+
+sequences = [9, 10]
+buffer_sizes = [10000]
+sampling_methods = ['reservoir-forgetting']
+seeds = [218]
 run_experiments(seeds, sampling_methods, buffer_sizes, sequences, max_num_seen_examples)

@@ -108,7 +108,8 @@ class ReplayBuffer(TorchDataset):
             index = sample['index'].item()
             assert index == sample_filenames['index']
             index = self.num_seen_examples[self.dataset_type]
-
+            self.max_num_seen_examples += 1
+            
             if self.max_num_seen_examples <= self.buffer_size:
                 add_sample = True
             else:
@@ -118,7 +119,6 @@ class ReplayBuffer(TorchDataset):
                     replace = True
                     # remove_sample = int(self.online_filenames[remove_index].name[-9:-4])
                     remove_sample = self.online_filenames[remove_index].name
-            self.max_num_seen_examples += 1
 
         if add_sample:
             filename = self.storage_dir / f'{self.dataset_type}_{index:>05}.pkl'

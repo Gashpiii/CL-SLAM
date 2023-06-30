@@ -178,6 +178,13 @@ class Slam:
 
         # Combine online and replay data ==================
         online_data = next(self.online_dataloader_iter)
+# TODO Finish adding image features to replay buffer
+        self.predictor._set_eval()
+        with torch.no_grad():
+            online_image = online_data['rgb', 0, 0].to(self.predictor.device)
+            online_features = self.predictor.models['depth_encoder'](online_image)[4].detach()
+            online_features = online_features.mean(-1).mean(-1).cpu().numpy()
+
         if self.replay_dataloader_iter is not None:
             try:
                 replay_data = next(self.replay_dataloader_iter)
